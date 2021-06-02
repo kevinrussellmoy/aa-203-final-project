@@ -1,5 +1,5 @@
 #%% File to compute optimal LMP dispatch from load data and tariff rate pricing
-# Kevin Moy, 11/3/2020
+# Kevin Moy, 5/30/2021
 
 import cvxpy as cp
 import pandas as pd
@@ -25,16 +25,22 @@ HR_FRAC = (
 
 #%% Import load and tariff rate data; convert to numpy array and get length
 df = pd.read_csv("df_LMP.csv")
-# load = df.gridnopv[0:288].to_numpy()
-# tariff = df.tariff[0:288].to_numpy()
-# times = pd.to_datetime(df.local_15min[0:288])
 lmp = df.LMP_kWh.to_numpy()
 times = pd.to_datetime(df.DATETIME)
 
-#%% TODO: Solve for one week using Gurobi (will become one iteration of MPC)
+#%% TODO: Upsample to 15-minute periods (can do this within the for loop of MPC)
 
-week_len = 24*7*40
+week_len = 24*2
+# lmp_wk = lmp[:week_len] - np.mean(lmp[:week_len])
 lmp_wk = lmp[:week_len]
+plt.plot(lmp_wk)
+
+#%% Solve for one week using Gurobi (will become one iteration of MPC)
+
+# TODO: Combine this with TOU dispatch.
+# Add in variables ess_c_lmp, ess_d_lmp, ess_c_tou, ess_d_lmp
+# chg_lmp_bin, dch_lmp_bin, chg_tou_bin, dch_tou_bin
+
 
 # Create a new model
 
@@ -43,43 +49,64 @@ m = gp.Model('lmp')
 # Create variables for:
 # each power flow
 # Power dispatched from ESS (positive=discharge, negative=charge)
-ess_c = m.addMVar(week_len, lb=0, vtype=GRB.CONTINUOUS, name='ess_c')
-ess_d = m.addMVar(week_len, lb=0, vtype=GRB.CONTINUOUS, name='ess_d')
-ess_p = m.addMVar(week_len, lb=0, vtype=GRB.CONTINUOUS, name='ess_d')
+ess_c = m.addMVar(week_len, vtype=GRB.CONTINUOUS, name='ess_c')
+ess_d = m.addMVar(week_len, vtype=GRB.CONTINUOUS, name='ess_d')
+ess_p = m.addMVar(week_len, vtype=GRB.CONTINUOUS, name='ess_d')
+
+# Integer indicator variables
+chg_bin = m.addMVar(week_len, vtype=GRB.BINARY, name='chg_bin')
+dch_bin = m.addMVar(week_len, vtype=GRB.BINARY, name='dch_bin')
 
 #Energy stored in ESS
-E = m.addMVar(week_len, lb=0, vtype=GRB.CONTINUOUS, name='E')
+ess_E = m.addMVar(week_len, vtype=GRB.CONTINUOUS, name='E')
 
-m.addConstr(E[0] == BAT_KWH_INIT)
+m.addConstr(ess_E[0] == BAT_KWH_INIT)
+m.addConstr(ess_E[week_len-1] == BAT_KWH_INIT)
 
 for t in range(week_len):
     # ESS power constraints
-    m.addConstr(ess_d[t] <= BAT_KW)
-    m.addConstr(ess_c[t] <= BAT_KW)
-    m.addConstr(ess_p[t] == ess_d[t] - ess_c[t])
+    m.addConstr(ess_c[t] <= BAT_KW * chg_bin[t])
+    m.addConstr(ess_d[t] <= BAT_KW * dch_bin[t])
+    # m.addConstr(ess_p[t] == ess_d[t] - ess_c[t])
 
-    m.addConstr(E[t] <= BAT_KWH)
-    m.addConstr(E[t] >= 0) 
+    m.addConstr(ess_E[t] <= BAT_KWH_MAX)
+    m.addConstr(ess_E[t] >= BAT_KWH_MIN) 
     m.addConstr(ess_c[t] >= 0)
     m.addConstr(ess_d[t] >= 0)
+    # m.addConstr(E[t] >= 0)
+
+    # #Ensure non-simultaneous charge and discharge aka why I downloaded Gurobi
+    m.addConstr(chg_bin[t] + dch_bin[t] <= 1)
 
     # Time evolution of stored energy
-    if t > 0:
-        m.addConstr(E[t] == E[t-1] + HR_FRAC*(ess_c[t-1] - ess_d[t-1]))
+for t in range(1,week_len):
+    m.addConstr(ess_E[t] == HR_FRAC*ess_c[t-1] + (ess_E[t-1] +  - ess_d[t-1]))
 
-# #Ensure non-simultaneous charge and discharge aka why I downloaded Gurobi
-m.addConstrs(0 == ess_d[i] @ ess_c[i] for i in range(week_len))
+# m.addConstrs(0 == ess_d[i] @ ess_c[i] for i in range(week_len))
+m.addConstr(ess_d[week_len-1] == 0)
+m.addConstr(ess_c[week_len-1] == 0)
 
 # Objective function
-m.setObjective(HR_FRAC*(sum(lmp_wk[i] * (ess_c[i] - ess_d[i]) for i in range(week_len))), GRB.MINIMIZE)
+m.setObjective(HR_FRAC*(sum(lmp_wk[i] * (ess_d[i] - ess_c[i]) for i in range(week_len))), GRB.MAXIMIZE)
+# m.setObjective(HR_FRAC * (lmp_wk @ ess_p), GRB.MAXIMIZE)
 
 # Solve the optimization
-m.params.NonConvex = 2
+# m.params.NonConvex = 2
 m.optimize()
 
+plt.plot(ess_d.getAttr('x')-ess_c.getAttr('x'))
+
+#%% Actual revenue generated
 plt.plot(ess_d.getAttr('x'))
 plt.plot(ess_c.getAttr('x'))
-#%%
+
+disp = ess_d.getAttr('x')-ess_c.getAttr('x')
+
+
+rev = disp @ lmp[:week_len]
+print(rev)
+ 
+#%% Convex (incorrect as chargng and discharging simultaneously allowed!)
 # Create optimization variables.
 chg_pow = cp.Variable(week_len)  # Power charged to the battery
 dch_pow = cp.Variable(week_len)  # Power discharged from the battery
@@ -111,7 +138,7 @@ for i in range(1, week_len):
 print("constraints complete")
 
 # Form objective.
-obj = cp.Maximize(lmp_wk.T @ (dch_pow - chg_pow))
+obj = cp.Maximize(HR_FRAC*(lmp_wk.T @ (dch_pow - chg_pow)))
 # obj = cp.Minimize(lod_pow.T @ np.ones(LOAD_LEN))
 
 
@@ -124,7 +151,7 @@ print("optimal value", prob.value)
 
 # Calculate relevant quantities.
 bat_pow = dch_pow.value - chg_pow.value
-cumulative_revenue = np.cumsum(bat_pow * lmp)
+cumulative_revenue = np.cumsum(bat_pow * lmp_wk)
 
 fig, ax1 = plt.subplots(1, 1, figsize=(10, 6))
 fig.autofmt_xdate()
@@ -134,6 +161,10 @@ ax1.xaxis.set_major_formatter(xfmt)
 ax1.set_xlabel("Date")
 ax1.set_ylabel("Power, kW")
 p1 = ax1.plot(bat_pow)
+
+#%%
+plt.plot(dch_pow.value)
+plt.plot(chg_pow.value)
 
 
 #%% Save output to CSV.
@@ -178,16 +209,3 @@ plt.legend(
 fig.tight_layout()  # otherwise the right y-label is slightly clipped
 
 plt.savefig("opt_ex_lmp.png")
-
-# for i in range(len(data_frame)):
-#     if i % 1000 == 0: print(i)
-#     constraints += [rate[i] <= discharge_max,  # Rate should be lower than or equal to max rate,
-#                     rate[i] >= charge_max,
-#                     E[i] <= SOC_max,  # Overall kW should be within the range of [SOC_min,SOC_max]
-#                     E[i] >= SOC_min]
-#     revenue += prices[i] * (
-#     rate[i])  # Revenue = sum of (prices ($/kWh) * (energy sold (kW) * 1hr - energy bought (kW) * 1hr) at timestep t)
-# for i in range(1, len(data_frame)):
-#     if i % 1000 == 0: print(i)
-#     constraints += [E[i] == E[i - 1] + rate[i - 1]]  # Current SOC constraint
-# constraints += [E[0] == random.uniform(SOC_min, SOC_max), rate[0] == 0]  # create first time step constraints
