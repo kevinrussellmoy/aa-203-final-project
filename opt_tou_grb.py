@@ -1,5 +1,5 @@
 # File to compute optimal TOU dispatch from load data and tariff rate pricing
-# Kevin Moy, 5/29/2021
+# Kevin Moy, 11/3/2020
 #%%
 import cvxpy as cp
 import pandas as pd
@@ -15,8 +15,8 @@ BAT_KW = 5.0  # Rated power of battery, in kW, continuous power for the Powerwal
 BAT_KWH = 14.0  # Rated energy of battery, in kWh.
 # Note Tesla Powerwall rates their energy at 13.5kWh, but at 100% DoD,
 # but I have also seen that it's actually 14kwh, 13.5kWh usable
-BAT_KWH_MIN = 0.0 * BAT_KWH  # Minimum SOE of battery, 10% of rated
-BAT_KWH_MAX = 1.0 * BAT_KWH  # Maximum SOE of battery, 90% of rated
+BAT_KWH_MIN = 0.1 * BAT_KWH  # Minimum SOE of battery, 10% of rated
+BAT_KWH_MAX = 0.9 * BAT_KWH  # Maximum SOE of battery, 90% of rated
 BAT_KWH_INIT = 0.5 * BAT_KWH  # Starting SOE of battery, 50% of rated
 HR_FRAC = (
     15 / 60
@@ -33,11 +33,11 @@ times = pd.to_datetime(df.local_15min)
 
 #%%
 
-week_len = 24*2*4
+week_len = 24*7*5
 load_wk = load[:week_len]
 tariff_wk = tariff[:week_len]
 # Create a new model
-m = gp.Model('tou')
+m = gp.Model('microgrid')
 
 # Create variables for:
 
@@ -65,10 +65,11 @@ for t in range(week_len):
     m.addConstr(load_wk[t] == ess_load[t] + grid_load[t])
     m.addConstr(ess_c[t] == grid_ess[t])
     m.addConstr(grid[t] == grid_ess[t] + grid_load[t])
+    # m.addConstr(ess_c[t] == pv_ess[t] + dg_ess[t]) # uncomment to allow ESS to charge off of DG
     m.addConstr(ess_d[t] == ess_load[t])
 
     # ESS power constraints
-    m.addConstr(ess_c[t] <= BAT_KW)
+    m.addConstr(ess_c[t] <= 0.5*BAT_KW)
     m.addConstr(ess_d[t] <= BAT_KW)
 
     m.addConstr(E[t] <= BAT_KWH) 
@@ -91,18 +92,8 @@ m.setObjective(tariff_wk @ grid, GRB.MINIMIZE)
 m.params.NonConvex = 2
 
 m.optimize()
-#%%
-plt.plot(ess_d.getAttr('x')-ess_c.getAttr('x'))
-
-#%% Actual revenue generated
-plt.plot(ess_d.getAttr('x'))
-plt.plot(ess_c.getAttr('x'))
-
-disp = ess_d.getAttr('x')-ess_c.getAttr('x')
 
 
-rev = grid.getAttr('x') @ tariff_wk
-print(rev)
 #%% Create optimization variables.
 grd_pow = cp.Variable(week_len)  # Total power consumed from grid
 lod_pow = cp.Variable(week_len)  # Power consumed by load from grid
