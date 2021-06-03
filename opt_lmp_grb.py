@@ -80,7 +80,7 @@ for t in range(week_len):
 
     # Time evolution of stored energy
 for t in range(1,week_len):
-    m.addConstr(ess_E[t] == HR_FRAC*ess_c[t-1] + (ess_E[t-1] +  - ess_d[t-1]))
+    m.addConstr(ess_E[t] == HR_FRAC*ess_c[t-1] + ess_E[t-1] - HR_FRAC*ess_d[t-1])
 
 # m.addConstrs(0 == ess_d[i] @ ess_c[i] for i in range(week_len))
 m.addConstr(ess_d[week_len-1] == 0)
