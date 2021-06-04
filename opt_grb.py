@@ -44,7 +44,7 @@ lmp = lmp.repeat(4)[:load.size]  # to ensure that all data arrays are the same l
 # 1 day
 num_hours_mpc = 2
 
-# define vector length of horizonfor MPC
+# define vector length of horizon for MPC
 opt_len = num_hours_mpc * int(1/HR_FRAC)
 
 # opt_start = 1
@@ -152,7 +152,13 @@ def tou_lmp_mpc(load, tariff, lmp, ess_E_0):
 # Input: load, tariff, LMP, energy stored
 # output: first action, resulting objective function (net revenue), new energy stored
 
-num_steps = NUM_HOURS * int(1/HR_FRAC)
+# TODO: Run for 7 days at:
+# horizon = 6 hours
+# horizon = 24 hours
+# horizon = 2 hours
+# horizon = 15 minutes
+num_days = 7
+num_steps = num_days * NUM_HOURS * int(1/HR_FRAC)
 
 # Store ESS, LMP revenue, TOU cost for eacn time step
 ess_E_ls = np.zeros(1)
