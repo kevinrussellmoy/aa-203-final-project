@@ -44,7 +44,10 @@ lmp = lmp.repeat(4)[:load.size]  # to ensure that all data arrays are the same l
 # define vector length of horizonfor MPC
 opt_len = 24 * 7 * int(1/HR_FRAC)
 
-opt_start = 0
+# Optional: second week of optimization
+week2_start = 24*4*7*5
+
+opt_start = 0 + week2_start
 opt_end = opt_start + opt_len
 load_opt = load[opt_start:opt_end]
 tariff_opt = tariff[opt_start:opt_end]

@@ -38,14 +38,19 @@ lmp = df_lmp.LMP_kWh.to_numpy()
 lmp = lmp.repeat(4)[:load.size]  # to ensure that all data arrays are the same length
 
 # %% Select length of optimization ( 1 day at first )
-# TODO: Try horizons of:
-# 2 hours ~9.2 iterations/sec, cumulative profit = 3.991 (4.3718 w/o terminal energy constraint)
-# 6 hours ~3.1 iterations/sec, cumulative profit = 7.127 (7.284 w/0 term energy const)
-# 1 day
-num_hours_mpc = 6
+# Try horizons of:
+# 12 hour ~1.5 iterations/sec (07:25), cumulative profit = 7.340
+# Week 2: cumulative profit = 6.321
+# 6 hours ~3.1 iterations/sec (03:38), cumulative profit = 7.127 (7.284 w/0 term energy const)
+# Week 2: cumulative profit = 5.983
+# 2 hours ~9.2 iterations/sec (01:14), cumulative profit = 3.991 (4.3718 w/o terminal energy constraint)
+# Week 2: cumulative profit = 3.988
+# 1 hour ~18.2 iterations/sec (00:37), cumulative profit = -1.622 (0.379 w/o term energy const)
+# Week 2: cumulative profit = -1.922
+# num_hours_mpc = 1
 
-# define vector length of horizon for MPC
-opt_len = num_hours_mpc * int(1/HR_FRAC)
+# # define vector length of horizon for MPC
+# opt_len = num_hours_mpc * int(1/HR_FRAC)
 
 # opt_start = 1
 # opt_end = opt_start + opt_len
@@ -56,7 +61,7 @@ opt_len = num_hours_mpc * int(1/HR_FRAC)
 
 #%% Optimization configuration
 
-def tou_lmp_mpc(load, tariff, lmp, ess_E_0):
+def tou_lmp_mpc(load, tariff, lmp, ess_E_0, opt_len):
     # Create a new model
     m = gp.Model('tou-lmp')
     m.Params.LogToConsole = 0  # suppress console output
@@ -92,7 +97,7 @@ def tou_lmp_mpc(load, tariff, lmp, ess_E_0):
     # Constrain initlal and final stored energy in battery
     # TODO: Modify this to account for MPC energy as an input
     m.addConstr(ess_E[0] == ess_E_0)
-    # m.addConstr(ess_E[opt_len-1] == ess_E_0)  # can this be 0?? does this need to be constrained??
+    m.addConstr(ess_E[opt_len-1] == ess_E_0)  # can this be 0?? does this need to be constrained??
 
     for t in range(opt_len):
         # ESS power constraints
@@ -148,50 +153,55 @@ def tou_lmp_mpc(load, tariff, lmp, ess_E_0):
 
     return ess_E.X[1], lmp_run[0], tou_run[0]
 
-#%% TODO: run MPC
-# Input: load, tariff, LMP, energy stored
-# output: first action, resulting objective function (net revenue), new energy stored
+#%% Compile MPC results
 
-# TODO: Run for 7 days at:
-# horizon = 6 hours
-# horizon = 24 hours
-# horizon = 2 hours
-# horizon = 15 minutes
+# Run for 7 days
 num_days = 7
 num_steps = num_days * NUM_HOURS * int(1/HR_FRAC)
 
 # Optional: second week of optimization
 week2_start = 24*4*7*5
 
-# Store ESS, LMP revenue, TOU cost for eacn time step
-ess_E_ls = np.zeros(1)
-lmp_ls = np.zeros(1)
-tou_ls = np.zeros(1)
+# Number of hours for horizon
+num_hours_mpc = [1, 2, 6, 12]
 
-# Track energy stored in ESS
-ess_E = BAT_KWH_INIT
-ess_E_ls[0] = ess_E
-for i in tqdm(range(num_steps)):
-    opt_start = i
-    opt_end = opt_start + opt_len
-    load_opt = load[opt_start:opt_end]
-    tariff_opt = tariff[opt_start:opt_end]
-    lmp_opt = lmp[opt_start:opt_end]
-    times_opt = times[opt_start:opt_end]
+# Loop over all horizons:
+for h in num_hours_mpc:
+    print("Horizon: {} hours \n".format(h))
+    opt_len = h * int(1/HR_FRAC)
+    # Store ESS, LMP revenue, TOU cost for eacn time step
+    ess_E_ls = np.zeros(1)
+    lmp_ls = np.zeros(1)
+    tou_ls = np.zeros(1)
 
-    # Execute 1 step of MPC
-    ess_E_1, lmp_0, tou_0 = tou_lmp_mpc(load_opt, tariff_opt, lmp_opt, ess_E)
+    # Track energy stored in ESS
+    ess_E = BAT_KWH_INIT
+    ess_E_ls[0] = ess_E
 
-    # Store MPC step results
-    ess_E_ls = np.append(ess_E_ls, ess_E_1)
-    lmp_ls = np.append(lmp_ls, lmp_0)
-    tou_ls = np.append(tou_ls, tou_0)
+    for i in tqdm(range(num_steps)):
+        opt_start = i + week2_start
+        opt_end = opt_start + opt_len
+        load_opt = load[opt_start:opt_end]
+        tariff_opt = tariff[opt_start:opt_end]
+        lmp_opt = lmp[opt_start:opt_end]
+        times_opt = times[opt_start:opt_end]
 
-    # Set energy stored for next step
-    ess_E = ess_E_1
+        # Execute 1 step of MPC
+        ess_E_1, lmp_0, tou_0 = tou_lmp_mpc(load_opt, tariff_opt, lmp_opt, ess_E, opt_len)
 
-print("Cumulative profit:")
-print(np.sum(lmp_ls-tou_ls))
+        # Store MPC step results
+        ess_E_ls = np.append(ess_E_ls, ess_E_1)
+        lmp_ls = np.append(lmp_ls, lmp_0)
+        tou_ls = np.append(tou_ls, tou_0)
+
+        # Set energy stored for next step
+        ess_E = ess_E_1
+
+    print("\nCumulative profit:")
+    print(np.sum(lmp_ls-tou_ls))
+    cump =np.cumsum(lmp_ls-tou_ls)
+    np.savetxt("cuml_profit_{}_hr_wk2.csv".format(h), cump, fmt='%.3e', delimiter=',')
+    np.savetxt("stor_energy_{}_hr_wk2.csv".format(h), ess_E_ls, fmt='%.3e', delimiter=',')
 
 # %% Net profit from ESS
 
@@ -219,7 +229,7 @@ xfmt = mdates.DateFormatter("%m-%d-%y %H:%M")
 ax1.xaxis.set_major_formatter(xfmt)
 ax1.set_xlabel("Date")
 ax1.set_ylabel("Revenue, $")
-ax1.set_ylim(-1,8)
+ax1.set_ylim(-2,8)
 # ax1.set_title("ESS Revenue, Disaggregated")
 # p1 = ax1.plot(times_plt, lmp_ls)
 # p2 = ax1.plot(times_plt, -tou_ls)
