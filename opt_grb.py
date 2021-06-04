@@ -39,10 +39,10 @@ lmp = lmp.repeat(4)[:load.size]  # to ensure that all data arrays are the same l
 
 # %% Select length of optimization ( 1 day at first )
 # TODO: Try horizons of:
-# 2 hours
-# 6 hours
+# 2 hours ~9.2 iterations/sec, cumulative profit = 3.991 (4.3718 w/o terminal energy constraint)
+# 6 hours ~3.1 iterations/sec, cumulative profit = 7.127 (7.284 w/0 term energy const)
 # 1 day
-num_hours_mpc = 2
+num_hours_mpc = 6
 
 # define vector length of horizon for MPC
 opt_len = num_hours_mpc * int(1/HR_FRAC)
@@ -92,7 +92,7 @@ def tou_lmp_mpc(load, tariff, lmp, ess_E_0):
     # Constrain initlal and final stored energy in battery
     # TODO: Modify this to account for MPC energy as an input
     m.addConstr(ess_E[0] == ess_E_0)
-    m.addConstr(ess_E[opt_len-1] == ess_E_0)  # can this be 0?? does this need to be constrained??
+    # m.addConstr(ess_E[opt_len-1] == ess_E_0)  # can this be 0?? does this need to be constrained??
 
     for t in range(opt_len):
         # ESS power constraints
@@ -160,6 +160,9 @@ def tou_lmp_mpc(load, tariff, lmp, ess_E_0):
 num_days = 7
 num_steps = num_days * NUM_HOURS * int(1/HR_FRAC)
 
+# Optional: second week of optimization
+week2_start = 24*4*7*5
+
 # Store ESS, LMP revenue, TOU cost for eacn time step
 ess_E_ls = np.zeros(1)
 lmp_ls = np.zeros(1)
@@ -187,6 +190,9 @@ for i in tqdm(range(num_steps)):
     # Set energy stored for next step
     ess_E = ess_E_1
 
+print("Cumulative profit:")
+print(np.sum(lmp_ls-tou_ls))
+
 # %% Net profit from ESS
 
 times_plt = times[:num_steps+1]
@@ -213,6 +219,7 @@ xfmt = mdates.DateFormatter("%m-%d-%y %H:%M")
 ax1.xaxis.set_major_formatter(xfmt)
 ax1.set_xlabel("Date")
 ax1.set_ylabel("Revenue, $")
+ax1.set_ylim(-1,8)
 # ax1.set_title("ESS Revenue, Disaggregated")
 # p1 = ax1.plot(times_plt, lmp_ls)
 # p2 = ax1.plot(times_plt, -tou_ls)
@@ -221,66 +228,5 @@ p1 = ax1.plot(times_plt, np.cumsum(lmp_ls-tou_ls))
 plt.grid()
 
 
-# %% Test plots!
-# Net dispatch of ESS
-fig, ax1 = plt.subplots(1, 1, figsize=(8, 6))
-fig.autofmt_xdate()
-plt.gcf().autofmt_xdate()
-xfmt = mdates.DateFormatter("%m-%d-%y %H:%M")
-ax1.xaxis.set_major_formatter(xfmt)
-ax1.set_xlabel("Date")
-ax1.set_ylabel("Power, kW")
-ax1.set_title("Net ESS Dispatch")
-p1 = ax1.plot(times_opt, ess_d_lmp.X - ess_c_lmp.X + ess_d_tou.X - ess_c_tou.X)
-plt.grid()
-# Disaggregate by application (LMP vs. TOU)
-fig, ax1 = plt.subplots(1, 1, figsize=(8, 6))
-fig.autofmt_xdate()
-plt.gcf().autofmt_xdate()
-xfmt = mdates.DateFormatter("%m-%d-%y %H:%M")
-ax1.xaxis.set_major_formatter(xfmt)
-ax1.set_xlabel("Date")
-ax1.set_ylabel("Power, kW")
-ax1.set_title("Disaggregated ESS Dispatch")
-p1 = ax1.plot(times_opt, ess_d_lmp.X - ess_c_lmp.X)
-p2 = ax1.plot(times_opt, ess_d_tou.X - ess_c_tou.X)
-plt.legend(["LMP", "TOU"])
-plt.grid()
-# Load power flow disaggregation
-fig, ax1 = plt.subplots(1, 1, figsize=(8, 6))
-fig.autofmt_xdate()
-plt.gcf().autofmt_xdate()
-xfmt = mdates.DateFormatter("%m-%d-%y %H:%M")
-ax1.xaxis.set_major_formatter(xfmt)
-ax1.set_xlabel("Date")
-ax1.set_ylabel("Power, kW")
-ax1.set_title("Grid and ESS Contribution to Load")
-p1 = ax1.plot(times_opt, load_opt, linewidth=4, linestyle=":")
-p2 = ax1.plot(times_opt, grid.X)
-p3 = ax1.plot(times_opt, ess_d_tou.X - ess_c_tou.X)
-plt.legend(["Total Load Demand", "Grid Supply", "ESS Supply"])
-plt.grid()
-# LMP dispatch and price
-fig, ax1 = plt.subplots(1, 1, figsize=(8, 6))
-fig.autofmt_xdate()
-plt.gcf().autofmt_xdate()
-xfmt = mdates.DateFormatter("%m-%d-%y %H:%M")
-ax1.xaxis.set_major_formatter(xfmt)
-ax1.set_xlabel("Date")
-ax1.set_ylabel("LMP, $/kWh")
-ax1.set_ylim([-0.15, 0.15])
-ax1.set_title("LMP and LMP dispatch")
-color = 'tab:red'
-p1 = ax1.plot(times_opt, lmp_opt, color=color)
-ax2 = ax1.twinx()
-color = 'tab:blue'
-p3 = ax2.plot(times_opt, ess_d_lmp.X - ess_c_lmp.X, color=color)
-ax2.set_ylabel("Power, kW")
-plt.grid()
-# LMP revenue and cost
-print("LMP Revenue")
-print(rev)
-print("TOU Cost")
-print(cost)
-plt.grid()
+
 # %%
