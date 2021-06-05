@@ -1,5 +1,5 @@
 # Real-Time, Multi-Service Operation of Grid-Scale Energy Storage using Model Predictive Control 
-FInal Project for AA 203: Optimal and Learning-Based Control: Real-Time, Multi-Service Operation of Grid-Scale Energy Storage using Model Predictive Control
+FInal Project for AA 203: Optimal and Learning-Based Control
 
 Abstract:
 
