@@ -39,25 +39,14 @@ lmp = lmp.repeat(4)[:load.size]  # to ensure that all data arrays are the same l
 
 # %% Select length of optimization ( 1 day at first )
 # Try horizons of:
-# 12 hour ~1.5 iterations/sec (07:25), cumulative profit = 7.340
-# Week 2: cumulative profit = 6.321
-# 6 hours ~3.1 iterations/sec (03:38), cumulative profit = 7.127 (7.284 w/0 term energy const)
-# Week 2: cumulative profit = 5.983
-# 2 hours ~9.2 iterations/sec (01:14), cumulative profit = 3.991 (4.3718 w/o terminal energy constraint)
-# Week 2: cumulative profit = 3.988
+# 12 hour ~1.5 iterations/sec (07:25), cumulative profit = 7.340 (7.334 w/o term energy const)
+# Week 2: cumulative profit = 6.321 (6.322 w/o term energy const)
+# 6 hours ~3.1 iterations/sec (03:38), cumulative profit = 7.127 (7.284 w/o term energy const)
+# Week 2: cumulative profit = 5.983 (6.095 w/o term energy const)
+# 2 hours ~9.2 iterations/sec (01:14), cumulative profit = 3.991 (4.3718 w/o term energy const)
+# Week 2: cumulative profit = 3.988 (3.383 w/o term energy const)
 # 1 hour ~18.2 iterations/sec (00:37), cumulative profit = -1.622 (0.379 w/o term energy const)
-# Week 2: cumulative profit = -1.922
-# num_hours_mpc = 1
-
-# # define vector length of horizon for MPC
-# opt_len = num_hours_mpc * int(1/HR_FRAC)
-
-# opt_start = 1
-# opt_end = opt_start + opt_len
-# load_opt = load[opt_start:opt_end]
-# tariff_opt = tariff[opt_start:opt_end]
-# lmp_opt = lmp[opt_start:opt_end]
-# times_opt = times[opt_start:opt_end]
+# Week 2: cumulative profit = -1.922 (-0.6602 w/o term energy const)
 
 #%% Optimization configuration
 
@@ -97,7 +86,7 @@ def tou_lmp_mpc(load, tariff, lmp, ess_E_0, opt_len):
     # Constrain initlal and final stored energy in battery
     # TODO: Modify this to account for MPC energy as an input
     m.addConstr(ess_E[0] == ess_E_0)
-    m.addConstr(ess_E[opt_len-1] == ess_E_0)  # can this be 0?? does this need to be constrained??
+    # m.addConstr(ess_E[opt_len-1] == ess_E_0)  # can this be 0?? does this need to be constrained??
 
     for t in range(opt_len):
         # ESS power constraints
@@ -179,7 +168,7 @@ for h in num_hours_mpc:
     ess_E_ls[0] = ess_E
 
     for i in tqdm(range(num_steps)):
-        opt_start = i + week2_start
+        opt_start = i
         opt_end = opt_start + opt_len
         load_opt = load[opt_start:opt_end]
         tariff_opt = tariff[opt_start:opt_end]
@@ -200,8 +189,8 @@ for h in num_hours_mpc:
     print("\nCumulative profit:")
     print(np.sum(lmp_ls-tou_ls))
     cump =np.cumsum(lmp_ls-tou_ls)
-    np.savetxt("cuml_profit_{}_hr_wk2.csv".format(h), cump, fmt='%.3e', delimiter=',')
-    np.savetxt("stor_energy_{}_hr_wk2.csv".format(h), ess_E_ls, fmt='%.3e', delimiter=',')
+    np.savetxt("cuml_profit_{}_hr_notermcost.csv".format(h), cump, fmt='%.3e', delimiter=',')
+    np.savetxt("stor_energy_{}_hr_notermcost.csv".format(h), ess_E_ls, fmt='%.3e', delimiter=',')
 
 # %% Net profit from ESS
 

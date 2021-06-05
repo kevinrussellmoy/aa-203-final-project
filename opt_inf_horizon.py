@@ -155,6 +155,7 @@ print("\n")
 print("Cumulative profit:")
 print(np.sum(lmp_run-tou_run))
 # Cumulative profit: 7.520771279207519
+# Week 2: 6.343892233528152
 
 # %% Net profit from ESS
 times_plt = times[:opt_len]
