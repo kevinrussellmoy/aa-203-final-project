@@ -50,6 +50,7 @@ week2_start = 24*4*7*5
 opt_start = 0 + week2_start
 opt_end = opt_start + opt_len
 load_opt = load[opt_start:opt_end]
+
 tariff_opt = tariff[opt_start:opt_end]
 lmp_opt = lmp[opt_start:opt_end]
 times_opt = times[opt_start:opt_end]
@@ -156,6 +157,11 @@ print("Cumulative profit:")
 print(np.sum(lmp_run-tou_run))
 # Cumulative profit: 7.520771279207519
 # Week 2: 6.343892233528152
+
+cump =np.cumsum(lmp_run-tou_run)
+np.savetxt("cuml_profit_fullopt_wk2.csv", cump, fmt='%.3e', delimiter=',')
+np.savetxt("stor_energy_fullopt_wk2.csv", ess_E.X, fmt='%.3e', delimiter=',')
+
 
 # %% Net profit from ESS
 times_plt = times[:opt_len]
